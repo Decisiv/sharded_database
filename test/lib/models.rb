@@ -1,41 +1,32 @@
 module Connection ; end
 
 class Connection::One < ActiveRecord::Base
-  establish_connection :one_db
+  establish_connection :shard_one
   self.abstract_class = true
 end
 
 class Connection::Two < ActiveRecord::Base
-  establish_connection :two_db
+  establish_connection :shard_two
   self.abstract_class = true
 end
-
-Connections = { :one => Connection::One, :two => Connection::Two }
 
 class GlobalConnection < ActiveRecord::Base
   establish_connection :master
   self.abstract_class = true
 end
 
-class AggregateEstimate < GlobalConnection
-  belongs_to :gun
-  include ShardedDatabase::Aggregate
-  self.foreign_id   = :other_id
-  preserve_attributes :source
-  
-  def determine_connection
-    Connections[source.to_sym]
-  end
-  
-end
-
 class Company < ActiveRecord::Base
   has_many :items
 end
 
-class Estimate < ActiveRecord::Base
+class Employee < ActiveRecord::Base
   belongs_to :company
   has_many :items
+  
+  def self.pick_connection(*args)
+    id_to_find = args.first
+    (id_to_find % 2) == 1 ? Connection::One : Connection::Two
+  end
   
   def call_company
     company
@@ -44,5 +35,18 @@ class Estimate < ActiveRecord::Base
 end
 
 class Item < ActiveRecord::Base
-  belongs_to :estimate
+  belongs_to :employee
+end
+
+class AggregateEmployee < GlobalConnection
+  belongs_to :gun
+  include ShardedDatabase::Aggregate
+  self.foreign_id   = :other_id
+  source_class 'Employee'
+  preserve_attributes :source
+  
+  def sharded_connection_klass
+    "Connection::#{source.classify}".constantize
+  end
+  
 end
